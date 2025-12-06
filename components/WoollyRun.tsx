@@ -42,7 +42,7 @@ export const WoollyRun: React.FC = () => {
     camera: { x: 0, y: 0 } as Camera,
     pressedKeys: new Set<string>(), // Raw key codes
     gamepadAssignments: { p1: null as number | null, p2: null as number | null },
-    lastJumpPressed: [false, false], // To handle "on press" for gamepads
+    lastJumpPressed: [false, false], // To handle "on press" for gamepads/keyboard
     gameSpeed: 3,
     distanceTraveled: 0,
     score: 0,
@@ -100,7 +100,7 @@ export const WoollyRun: React.FC = () => {
               oscillator.type = 'square';
               oscillator.frequency.setValueAtTime(600, currTime);
               oscillator.frequency.exponentialRampToValueAtTime(300, currTime + 0.1);
-              gainNode.gain.setValueAtTime(0.1, currTime);
+              gainNode.gain.setValueAtTime(0.05, currTime); // Reduced volume
               gainNode.gain.linearRampToValueAtTime(0, currTime + 0.1);
               break;
           case 'bossHit':
@@ -861,9 +861,16 @@ export const WoollyRun: React.FC = () => {
         const keyLeft = isKeyPressed(pControls.LEFT) || (gpInput && gpInput.moveX < -0.3);
         const keyRight = isKeyPressed(pControls.RIGHT) || (gpInput && gpInput.moveX > 0.3);
         
-        // JUMP Logic (On Press)
+        // JUMP Logic (On Press & Variable Height)
         const rawJump = isKeyPressed(pControls.UP) || (gpInput && gpInput.jump);
         const jumpPressedNow = rawJump && !state.lastJumpPressed[idx];
+        
+        // Variable Jump Height (Cutting velocity on release)
+        // Detect falling edge: Was pressed last frame, is not pressed now
+        if (state.lastJumpPressed[idx] && !rawJump) {
+             if (player.vy < -5) player.vy *= 0.5;
+        }
+
         state.lastJumpPressed[idx] = !!rawJump;
         
         if (jumpPressedNow) {
@@ -1446,31 +1453,12 @@ export const WoollyRun: React.FC = () => {
            return;
       }
       
-      // Jump Logic handled here to ensure double jump triggers correctly (ONCE per key press)
-      // Note: Gamepad "On Press" is handled in the update loop via lastJumpPressed state
-      if (gameState === GameState.PLAYING) {
-          if (CONTROLS.P1.UP.includes(e.code)) {
-              handleJump(stateRef.current.players[0]);
-          }
-          if (gameMode === 'COOP' && CONTROLS.P2.UP.includes(e.code)) {
-              handleJump(stateRef.current.players[1]);
-          }
-      }
+      // MOVED: Jump logic is now fully handled in update() loop to prevent double triggers
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
       stateRef.current.pressedKeys.delete(e.code);
-      
-      // Variable jump height fix for P1
-      if (gameState === GameState.PLAYING) {
-          const p1 = stateRef.current.players[0];
-          if (p1 && CONTROLS.P1.UP.includes(e.code) && p1.vy < -5) p1.vy *= 0.5;
-          
-          if (gameMode === 'COOP') {
-              const p2 = stateRef.current.players[1];
-              if (p2 && CONTROLS.P2.UP.includes(e.code) && p2.vy < -5) p2.vy *= 0.5;
-          }
-      }
+      // MOVED: Variable jump height logic is now fully handled in update() loop
     };
 
     window.addEventListener('keydown', handleKeyDown);
