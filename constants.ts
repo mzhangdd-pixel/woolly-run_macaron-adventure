@@ -39,18 +39,18 @@ export const CONTROLS = {
     LEFT: ['KeyA'],
     RIGHT: ['KeyD'],
     DOWN: ['KeyS'],
-    SHOOT: ['KeyC'],
-    DASH: ['KeyV'],
-    HEAVY: ['KeyB']
+    SHOOT: ['KeyJ'], // Updated to J
+    DASH: ['KeyK'],  // Updated to K
+    HEAVY: ['KeyL']  // Updated to L
   },
   P2: {
     UP: ['ArrowUp'],
     LEFT: ['ArrowLeft'],
     RIGHT: ['ArrowRight'],
     DOWN: ['ArrowDown'],
-    SHOOT: ['KeyJ'],
-    DASH: ['KeyK'],
-    HEAVY: ['KeyL']
+    SHOOT: ['Numpad1', 'KeyC'], // Fallbacks to prevent conflict
+    DASH: ['Numpad2', 'KeyV'],
+    HEAVY: ['Numpad3', 'KeyB']
   }
 };
 
@@ -59,12 +59,15 @@ export const GAMEPAD_DEADZONE = 0.15;
 export const GAMEPAD_MAP = {
   // Axes
   MOVE_X: 0, // Left Stick Horizontal
+  SKIN_SELECT_X: 2, // Right Stick Horizontal
   
   // Buttons (Standard Mapping)
   JUMP: 0,   // B (Bottom)
-  HEAVY: 1,  // A (Right)
-  DASH: 2,   // X (Left in Standard/Prompt Request)
+  DASH: 1,   // A (Right) - Changed from 2
+  RESTART: 3, // X (Top) - Corresponds to R key
+  HEAVY: 6,  // ZL (Left Trigger) - Changed from 1
   ATTACK: 7, // ZR (Right Trigger)
+  MENU: 9,   // + (Start) - Corresponds to ESC
   
   // Connection Combo
   CONNECT_L: 6, // ZL (Left Trigger)

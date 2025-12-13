@@ -16,7 +16,15 @@ export const WoollyRun: React.FC = () => {
   const [showSettings, setShowSettings] = useState(false);
   
   // Gamepad Config State
-  const [gamepadConfigStep, setGamepadConfigStep] = useState<'none' | 'p1_wait' | 'p2_wait' | 'done'>('none');
+  const gamepadConfigStepRef = useRef<'none' | 'p1_wait' | 'p2_wait' | 'done'>('none');
+  const [gamepadConfigStep, setGamepadConfigStepState] = useState<'none' | 'p1_wait' | 'p2_wait' | 'done'>('none');
+  const [gamepadsDetected, setGamepadsDetected] = useState(0);
+
+  // Unified setter to keep Ref and State in sync
+  const setGamepadConfigStep = (val: 'none' | 'p1_wait' | 'p2_wait' | 'done') => {
+      gamepadConfigStepRef.current = val;
+      setGamepadConfigStepState(val);
+  };
   
   // Skin Selection
   const [p1Skin, setP1Skin] = useState(SKINS[0]);
@@ -43,12 +51,16 @@ export const WoollyRun: React.FC = () => {
     pressedKeys: new Set<string>(), // Raw key codes
     gamepadAssignments: { p1: null as number | null, p2: null as number | null },
     lastJumpPressed: [false, false], // To handle "on press" for gamepads/keyboard
+    lastRestartPressed: false,
+    lastMenuPressed: false,
+    skinSelectTimer: 0, // Throttle for stick selection
     gameSpeed: 3,
     distanceTraveled: 0,
     score: 0,
     frames: 0,
     shakeTimer: 0,
     damageFlashTimer: 0,
+    lastGamepadCount: 0,
     // Boss State
     nextBossThreshold: BOSS_SCORE_THRESHOLD,
     bossMode: false,
@@ -66,7 +78,7 @@ export const WoollyRun: React.FC = () => {
     }
   }, []);
 
-  const playSound = (type: 'pop' | 'dash' | 'hit' | 'shoot' | 'bossHit' | 'bossDie' | 'charge' | 'jump' | 'heavy') => {
+  const playSound = (type: 'pop' | 'dash' | 'hit' | 'die' | 'shoot' | 'bossHit' | 'bossDie' | 'charge' | 'jump' | 'heavy') => {
       if (!audioCtxRef.current) return;
       if (audioCtxRef.current.state === 'suspended') audioCtxRef.current.resume();
 
@@ -79,63 +91,71 @@ export const WoollyRun: React.FC = () => {
               oscillator.type = 'sine';
               oscillator.frequency.setValueAtTime(800, currTime);
               oscillator.frequency.exponentialRampToValueAtTime(1200, currTime + 0.1);
-              gainNode.gain.setValueAtTime(0.3, currTime);
+              gainNode.gain.setValueAtTime(0.4, currTime);
               gainNode.gain.exponentialRampToValueAtTime(0.01, currTime + 0.15);
               break;
           case 'dash':
               oscillator.type = 'triangle';
               oscillator.frequency.setValueAtTime(300, currTime);
               oscillator.frequency.linearRampToValueAtTime(100, currTime + 0.1);
-              gainNode.gain.setValueAtTime(0.2, currTime);
+              gainNode.gain.setValueAtTime(0.3, currTime);
               gainNode.gain.exponentialRampToValueAtTime(0.01, currTime + 0.1);
               break;
           case 'hit':
               oscillator.type = 'sawtooth';
               oscillator.frequency.setValueAtTime(150, currTime);
               oscillator.frequency.exponentialRampToValueAtTime(50, currTime + 0.2);
-              gainNode.gain.setValueAtTime(0.3, currTime);
+              gainNode.gain.setValueAtTime(0.4, currTime);
               gainNode.gain.linearRampToValueAtTime(0, currTime + 0.2);
               break;
+          case 'die':
+              // Gentle death sound
+              oscillator.type = 'sine';
+              oscillator.frequency.setValueAtTime(220, currTime);
+              oscillator.frequency.exponentialRampToValueAtTime(55, currTime + 1.5);
+              gainNode.gain.setValueAtTime(0.5, currTime);
+              gainNode.gain.linearRampToValueAtTime(0, currTime + 1.5);
+              break;
           case 'shoot':
-              oscillator.type = 'square';
-              oscillator.frequency.setValueAtTime(600, currTime);
-              oscillator.frequency.exponentialRampToValueAtTime(300, currTime + 0.1);
-              gainNode.gain.setValueAtTime(0.05, currTime); // Reduced volume
-              gainNode.gain.linearRampToValueAtTime(0, currTime + 0.1);
+              // Cute chirp
+              oscillator.type = 'sine';
+              oscillator.frequency.setValueAtTime(800, currTime);
+              oscillator.frequency.linearRampToValueAtTime(1200, currTime + 0.08);
+              gainNode.gain.setValueAtTime(0.15, currTime); 
+              gainNode.gain.linearRampToValueAtTime(0, currTime + 0.08);
               break;
           case 'bossHit':
               oscillator.type = 'sawtooth';
               oscillator.frequency.setValueAtTime(100, currTime);
-              gainNode.gain.setValueAtTime(0.2, currTime);
+              gainNode.gain.setValueAtTime(0.3, currTime);
               gainNode.gain.exponentialRampToValueAtTime(0.01, currTime + 0.1);
               break;
           case 'bossDie':
               oscillator.type = 'triangle';
               oscillator.frequency.setValueAtTime(200, currTime);
               oscillator.frequency.linearRampToValueAtTime(800, currTime + 1.0);
-              gainNode.gain.setValueAtTime(0.5, currTime);
+              gainNode.gain.setValueAtTime(0.6, currTime);
               gainNode.gain.linearRampToValueAtTime(0, currTime + 1.0);
               break;
           case 'charge':
               oscillator.type = 'sine';
               oscillator.frequency.setValueAtTime(200, currTime);
               oscillator.frequency.linearRampToValueAtTime(400, currTime + 0.1);
-              gainNode.gain.setValueAtTime(0.1, currTime);
+              gainNode.gain.setValueAtTime(0.2, currTime);
               gainNode.gain.linearRampToValueAtTime(0, currTime + 0.1);
               break;
           case 'jump':
               oscillator.type = 'sine';
               oscillator.frequency.setValueAtTime(200, currTime);
               oscillator.frequency.linearRampToValueAtTime(400, currTime + 0.15);
-              gainNode.gain.setValueAtTime(0.1, currTime);
+              gainNode.gain.setValueAtTime(0.2, currTime);
               gainNode.gain.linearRampToValueAtTime(0, currTime + 0.15);
               break;
           case 'heavy':
-              // Softened heavy fall sound
               oscillator.type = 'sine';
               oscillator.frequency.setValueAtTime(120, currTime);
               oscillator.frequency.linearRampToValueAtTime(60, currTime + 0.3);
-              gainNode.gain.setValueAtTime(0.2, currTime);
+              gainNode.gain.setValueAtTime(0.4, currTime);
               gainNode.gain.linearRampToValueAtTime(0, currTime + 0.3);
               break;
       }
@@ -143,7 +163,7 @@ export const WoollyRun: React.FC = () => {
       oscillator.connect(gainNode);
       gainNode.connect(audioCtxRef.current.destination);
       oscillator.start();
-      oscillator.stop(currTime + (type === 'bossDie' ? 1.0 : 0.3));
+      oscillator.stop(currTime + (type === 'bossDie' || type === 'die' ? 1.5 : 0.3));
   };
 
   const createPlayer = (index: number, skin: typeof SKINS[0]): Player => ({
@@ -246,19 +266,73 @@ export const WoollyRun: React.FC = () => {
       const gamepads = navigator.getGamepads();
       if (!gamepads) return;
 
-      // Handle Configuration Step
-      if (gamepadConfigStep !== 'none' && gamepadConfigStep !== 'done') {
+      // Update detection count for UI
+      const activeCount = Array.from(gamepads).filter(gp => gp !== null).length;
+      if (activeCount !== stateRef.current.lastGamepadCount) {
+          stateRef.current.lastGamepadCount = activeCount;
+          setGamepadsDetected(activeCount);
+      }
+
+      // 1. Global Inputs (Restart, Menu, Skin Select)
+      // Use P1's gamepad or the first active one for global menu control
+      const menuGpIndex = stateRef.current.gamepadAssignments.p1 ?? Array.from(gamepads).findIndex(gp => gp !== null);
+      if (menuGpIndex !== -1 && gamepads[menuGpIndex]) {
+          const gp = gamepads[menuGpIndex]!;
+          
+          // Menu Toggle (+)
+          const menuPressed = gp.buttons[GAMEPAD_MAP.MENU].pressed;
+          if (menuPressed && !stateRef.current.lastMenuPressed) {
+              setShowSettings(prev => !prev);
+          }
+          stateRef.current.lastMenuPressed = menuPressed;
+
+          // Restart (X) - Only in Game Over
+          const restartPressed = gp.buttons[GAMEPAD_MAP.RESTART].pressed;
+          if (restartPressed && !stateRef.current.lastRestartPressed) {
+              if (gameState === GameState.GAME_OVER) {
+                  initGame();
+                  setGameState(GameState.PLAYING);
+              }
+          }
+          stateRef.current.lastRestartPressed = restartPressed;
+
+          // Skin Select (Right Stick) - Only in Menu
+          if (gameState === GameState.MENU) {
+              const stickX = applyDeadzone(gp.axes[GAMEPAD_MAP.SKIN_SELECT_X]);
+              if (stateRef.current.skinSelectTimer > 0) stateRef.current.skinSelectTimer--;
+              
+              if (Math.abs(stickX) > 0.5 && stateRef.current.skinSelectTimer === 0) {
+                  const direction = Math.sign(stickX);
+                  const currentIndex = SKINS.findIndex(s => s.id === p1Skin.id);
+                  let nextIndex = currentIndex + direction;
+                  if (nextIndex >= SKINS.length) nextIndex = 0;
+                  if (nextIndex < 0) nextIndex = SKINS.length - 1;
+                  setP1Skin(SKINS[nextIndex]);
+                  stateRef.current.skinSelectTimer = 15; // Delay frames
+              }
+          }
+      }
+
+      // 2. Configuration Step
+      // Use Ref to avoid stale closure issues in the game loop
+      const step = gamepadConfigStepRef.current;
+      
+      if (step !== 'none' && step !== 'done') {
           for (const gp of gamepads) {
               if (gp && gp.buttons[GAMEPAD_MAP.CONNECT_L].pressed && gp.buttons[GAMEPAD_MAP.CONNECT_R].pressed) {
-                  const alreadyAssigned = Object.values(stateRef.current.gamepadAssignments).includes(gp.index);
-                  if (gamepadConfigStep === 'p1_wait') {
+                  // Found a controller holding ZL + ZR
+                  if (step === 'p1_wait') {
                       stateRef.current.gamepadAssignments.p1 = gp.index;
-                      setGamepadConfigStep(gameMode === 'COOP' ? 'p2_wait' : 'done');
+                      const nextStep = gameMode === 'COOP' ? 'p2_wait' : 'done';
+                      setGamepadConfigStep(nextStep);
                       break;
-                  } else if (gamepadConfigStep === 'p2_wait' && stateRef.current.gamepadAssignments.p1 !== gp.index) {
-                      stateRef.current.gamepadAssignments.p2 = gp.index;
-                      setGamepadConfigStep('done');
-                      break;
+                  } else if (step === 'p2_wait') {
+                      // Ensure we don't assign P1's controller to P2
+                      if (stateRef.current.gamepadAssignments.p1 !== gp.index) {
+                          stateRef.current.gamepadAssignments.p2 = gp.index;
+                          setGamepadConfigStep('done');
+                          break;
+                      }
                   }
               }
           }
@@ -575,14 +649,16 @@ export const WoollyRun: React.FC = () => {
       
       stateRef.current.shakeTimer = 15;
       stateRef.current.damageFlashTimer = 5;
-      playSound('hit');
-
+      
       if (player.health <= 0) {
           player.isDead = true;
+          playSound('die');
           // Check global game over
           if (stateRef.current.players.every(p => p.isDead)) {
               setGameState(GameState.GAME_OVER);
           }
+      } else {
+          playSound('hit');
       }
   };
 
@@ -1547,7 +1623,12 @@ export const WoollyRun: React.FC = () => {
                          
                          {/* Gamepad Setup */}
                          <div className="bg-gray-50 p-4 rounded-xl">
-                              <h3 className="font-bold text-gray-600 mb-3 flex items-center gap-2"><Gamepad2 size={18}/> Gamepad Setup (Switch Pro)</h3>
+                              <h3 className="font-bold text-gray-600 mb-3 flex items-center justify-between">
+                                <span className="flex items-center gap-2"><Gamepad2 size={18}/> Gamepad Setup</span>
+                                <span className={`text-[10px] px-2 py-1 rounded-full ${gamepadsDetected > 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                                    {gamepadsDetected} Detected
+                                </span>
+                              </h3>
                               {gamepadConfigStep === 'none' && (
                                   <button 
                                     onClick={() => setGamepadConfigStep('p1_wait')}
@@ -1557,24 +1638,24 @@ export const WoollyRun: React.FC = () => {
                                   </button>
                               )}
                               
-                              {gamepadConfigStep === 'p1_wait' && (
-                                  <div className="text-center p-2 bg-yellow-100 text-yellow-800 rounded-lg animate-pulse font-bold">
-                                      Player 1: Press ZL + ZR
-                                  </div>
-                              )}
-                              
-                              {gamepadConfigStep === 'p2_wait' && (
-                                  <div className="text-center p-2 bg-purple-100 text-purple-800 rounded-lg animate-pulse font-bold">
-                                      Player 2: Press ZL + ZR
+                              {(gamepadConfigStep === 'p1_wait' || gamepadConfigStep === 'p2_wait') && (
+                                  <div className={`text-center p-2 rounded-lg animate-pulse font-bold ${gamepadConfigStep === 'p1_wait' ? 'bg-yellow-100 text-yellow-800' : 'bg-purple-100 text-purple-800'}`}>
+                                      {gamepadConfigStep === 'p1_wait' ? 'Player 1' : 'Player 2'}: Press ZL + ZR
                                   </div>
                               )}
                               
                               {gamepadConfigStep === 'done' && (
-                                  <div className="text-center p-2 bg-green-100 text-green-800 rounded-lg flex items-center justify-center gap-2 font-bold">
-                                      <CheckCircle2 size={16}/> Connected!
-                                  </div>
+                                  <button 
+                                      onClick={() => {
+                                          stateRef.current.gamepadAssignments = { p1: null, p2: null };
+                                          setGamepadConfigStep('p1_wait');
+                                      }}
+                                      className="w-full text-center p-2 bg-green-100 hover:bg-green-200 text-green-800 rounded-lg flex items-center justify-center gap-2 font-bold transition-colors"
+                                  >
+                                      <CheckCircle2 size={16}/> Connected! (Click to Reset)
+                                  </button>
                               )}
-                              <p className="text-[10px] text-gray-400 mt-2 text-center">Standard W3C Layout. Use Chrome/Edge.</p>
+                              <p className="text-[10px] text-gray-400 mt-2 text-center">Switch Layout: ZL+ZR to pair. + for Menu. X Restart.</p>
                          </div>
 
                          {/* Controls View */}
@@ -1585,18 +1666,18 @@ export const WoollyRun: React.FC = () => {
                                      <p className="font-bold text-pink-500 mb-1">Player 1</p>
                                      <ul className="text-gray-500 space-y-1">
                                          <li>Move: <span className="font-mono bg-white px-1 rounded border">WASD</span></li>
-                                         <li>Shoot: <span className="font-mono bg-white px-1 rounded border">C</span></li>
-                                         <li>Dash: <span className="font-mono bg-white px-1 rounded border">V</span></li>
-                                         <li>Heavy: <span className="font-mono bg-white px-1 rounded border">B</span></li>
+                                         <li>Shoot: <span className="font-mono bg-white px-1 rounded border">J</span></li>
+                                         <li>Dash: <span className="font-mono bg-white px-1 rounded border">K</span></li>
+                                         <li>Heavy: <span className="font-mono bg-white px-1 rounded border">L</span></li>
                                      </ul>
                                  </div>
                                  <div>
                                      <p className="font-bold text-blue-500 mb-1">Player 2</p>
                                      <ul className="text-gray-500 space-y-1">
                                          <li>Move: <span className="font-mono bg-white px-1 rounded border">Arrows</span></li>
-                                         <li>Shoot: <span className="font-mono bg-white px-1 rounded border">J</span></li>
-                                         <li>Dash: <span className="font-mono bg-white px-1 rounded border">K</span></li>
-                                         <li>Heavy: <span className="font-mono bg-white px-1 rounded border">L</span></li>
+                                         <li>Shoot: <span className="font-mono bg-white px-1 rounded border">Num 1</span></li>
+                                         <li>Dash: <span className="font-mono bg-white px-1 rounded border">Num 2</span></li>
+                                         <li>Heavy: <span className="font-mono bg-white px-1 rounded border">Num 3</span></li>
                                      </ul>
                                  </div>
                              </div>
@@ -1611,7 +1692,7 @@ export const WoollyRun: React.FC = () => {
             <div className="absolute inset-0 bg-white/60 backdrop-blur-sm flex flex-col items-center justify-center animate-fade-in">
                 <h1 className="text-6xl font-black text-transparent bg-clip-text bg-gradient-to-r from-pink-400 to-purple-400 mb-2 drop-shadow-sm">Woolly Run</h1>
                 <div className="text-gray-400 text-sm mb-6 flex items-center gap-2">
-                    <span className="bg-gray-100 px-2 py-1 rounded text-xs font-bold">ESC</span> Settings
+                    <span className="bg-gray-100 px-2 py-1 rounded text-xs font-bold">ESC / +</span> Settings
                 </div>
                 
                 {/* Skin Selectors */}
@@ -1655,7 +1736,7 @@ export const WoollyRun: React.FC = () => {
                 <div className="bg-white/90 p-12 rounded-[2rem] shadow-2xl flex flex-col items-center text-center border-4 border-pink-200 animate-bounce-in">
                     <Skull size={48} className="text-pink-300 mb-4" />
                     <h2 className="text-5xl font-bold text-pink-500 mb-2">Oh no!</h2>
-                    <p className="text-gray-400 mb-6">Press <span className="font-bold bg-gray-100 px-2 py-1 rounded">R</span> to restart instantly</p>
+                    <p className="text-gray-400 mb-6">Press <span className="font-bold bg-gray-100 px-2 py-1 rounded">R</span> or <span className="font-bold bg-gray-100 px-2 py-1 rounded">X</span> to restart</p>
                     <div className="bg-yellow-50 p-4 rounded-xl mb-8 w-full">
                         <p className="text-sm text-yellow-600 font-bold uppercase tracking-wider">Score</p>
                         <p className="text-4xl font-black text-yellow-400">{score}</p>
